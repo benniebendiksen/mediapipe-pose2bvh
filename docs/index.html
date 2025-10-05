@@ -72,6 +72,29 @@
 
 
 <script>
+  console.log("Hello from index.html!");
+  // 👇 Hardcoded JSON load at startup
+  fetch("./pose_output.json")
+    .then(response => response.json())
+    .then(jsonData => {
+      console.log("Loaded pose_output.json successfully");
+      if (window.generateBVH) {
+        window.generateBVH(jsonData);
+      } else {
+        console.warn("generateBVH not yet defined — trying again in 1s...");
+        setTimeout(() => {
+          if (window.generateBVH) {
+            window.generateBVH(jsonData);
+          } else {
+            alert("generateBVH() still not found — check script.js structure");
+          }
+        }, 1000);
+      }
+    })
+    .catch(err => console.error("Error loading pose_output.json:", err));
+</script>
+
+<script>
   let isRecording = false;
 
   function toggleRecording() {
@@ -127,9 +150,31 @@
     Record BVH
   </button>
 
-  <script type="module" src="./script.js"></script>
-  <script type="module" src="threejsscene.js"></script>
-  
+<!--<script type="module" src="./script.js"></script>-->
+<!--<script type="module" src="threejsscene.js"></script>-->
+
+<!--<script>-->
+<!--  // 👇 Hardcoded JSON load at startup-->
+<!--  fetch("./pose_output.json")-->
+<!--    .then(response => response.json())-->
+<!--    .then(jsonData => {-->
+<!--      console.log("Loaded pose_output.json successfully");-->
+<!--      if (window.generateBVH) {-->
+<!--        window.generateBVH(jsonData);-->
+<!--      } else {-->
+<!--        console.warn("generateBVH not yet defined — trying again in 1s...");-->
+<!--        setTimeout(() => {-->
+<!--          if (window.generateBVH) {-->
+<!--            window.generateBVH(jsonData);-->
+<!--          } else {-->
+<!--            alert("generateBVH() still not found — check script.js structure");-->
+<!--          }-->
+<!--        }, 1000);-->
+<!--      }-->
+<!--    })-->
+<!--    .catch(err => console.error("Error loading pose_output.json:", err));-->
+<!--</script>-->
+
 
 </body>
 
