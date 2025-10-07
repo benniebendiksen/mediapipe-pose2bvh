@@ -1,10 +1,11 @@
+<!-- Ensure to first run a local server from the root directory, e.g., npx http-server docs -->
+
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
   <meta charset="UTF-8">
-  <title>pose2bvh</title>
-  <meta charset="utf-8">
+  <title>pose2bvh - Direct Converter</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
@@ -13,169 +14,287 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="three.min.js"></script>
   <script src="bvh_converter.js"></script>
-  
 
   <script>
-    var faceLandmarker;
-    var faceResults;
-
     var holisticResults;
-
     let camera, scene, renderer, stats;
     var model;
     var animation;
     var animationDuration;
-    let camera_bvh, controls_bvh, scene_bvh, renderer_bvh;
-    let mixer_bvh, skeletonHelper_bvh;
 
     var args = window.location.hash.replace("#", "").split(",");
     var fbxfile = args[0] || "ybot.fbx";
-    var trackingLine;
-    var line_tracker = []; // Start with an empty array
+
     var bvhRecorderFrequency = 20;
     var lastFrameTime = -1;
-    var recordStartTime = -1;
-
-    var facemesh;
     var lastUpdateFrameTime = 0;
-
+    var recordedMotionData = [];
+    var recording = false;
+    var firstFrameJointData;
   </script>
 
   <style>
-    #results {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      color: black;
+    body {
+      margin: 0;
+      background: #232323;
+      font-family: Arial, sans-serif;
     }
 
-    #results div {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      max-height: 200px;
-      min-height: 200px;
-      overflow-y: hidden;
+    #conversionStatus {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      padding: 40px;
+      border-radius: 10px;
+      text-align: center;
+      z-index: 10000;
+      min-width: 400px;
+    }
+
+    #conversionStatus h4 {
+      margin-top: 0;
+      color: #4CAF50;
+    }
+
+    #conversionStatus .progress {
+      background-color: #333;
+      margin: 20px 0;
+    }
+
+    .btn-convert {
+      margin-top: 20px;
+      font-size: 16px;
+      padding: 15px 30px;
     }
   </style>
 
 </head>
 
-<body style="margin:0;background:#232323">
+<body>
 
-  <video id="video" style="z-index:999999;width:100vw;max-width:300px;height:auto;position: fixed;
-  top: 20px;
-  left: 20px;
-  border: 10px #e0e0e0 solid;
-  box-shadow: 5px 5px 10px 2px gray;
-  transform: rotate(-5deg);" autoplay></video>
+  <!-- Conversion Status Display -->
+  <div id="conversionStatus">
+    <h4>🎬 Pose to BVH Converter</h4>
+    <p id="statusText">Initializing...</p>
+    <div class="progress">
+      <div id="progressBar" class="determinate" style="width: 0%"></div>
+    </div>
+    <button class="btn waves-effect waves-light green btn-convert" onclick="window.convertPoseJsonToBVH()" style="display:none;" id="manualConvertBtn">
+      <i class="material-icons left">sync</i>
+      Convert Again
+    </button>
+  </div>
 
+  <!-- Hidden 3D scene (runs in background for processing) -->
+  <div id="threeContainer" style="position:fixed;top:-10000px;left:-10000px;width:640px;height:480px;"></div>
 
-<script>
-  console.log("Hello from index.html!");
-  // 👇 Hardcoded JSON load at startup
-  fetch("./pose_output.json")
-    .then(response => response.json())
-    .then(jsonData => {
-      console.log("Loaded pose_output.json successfully");
-      if (window.generateBVH) {
-        window.generateBVH(jsonData);
-      } else {
-        console.warn("generateBVH not yet defined — trying again in 1s...");
-        setTimeout(() => {
-          if (window.generateBVH) {
-            window.generateBVH(jsonData);
-          } else {
-            alert("generateBVH() still not found — check script.js structure");
-          }
-        }, 1000);
+  <!-- Load scripts -->
+  <script type="module" src="threejsscene.js"></script>
+  <script src="direct_converter.js"></script>
+
+  <script>
+    // Update UI during conversion
+    window.updateConversionProgress = function(current, total, message) {
+      const statusText = document.getElementById('statusText');
+      const progressBar = document.getElementById('progressBar');
+
+      if (statusText) {
+        statusText.textContent = message || `Processing frame ${current}/${total}...`;
       }
-    })
-    .catch(err => console.error("Error loading pose_output.json:", err));
-</script>
 
-<script>
-  let isRecording = false;
+      if (progressBar && total > 0) {
+        const percentage = (current / total) * 100;
+        progressBar.style.width = percentage + '%';
+      }
+    };
 
-  function toggleRecording() {
-    const recordButton = document.getElementById('recordButton');
-    const recordIcon = recordButton.querySelector('i');
-    if (!isRecording) {
-      startRecording();
-      recordButton.classList.remove('green');
-      recordButton.classList.add('red');
-      recordIcon.textContent = 'stop';
-      recordButton.innerHTML = recordButton.innerHTML.replace('Record BVH', 'Stop Recording');
-    } else {
-      stopRecording();
-      recordButton.classList.remove('red');
-      recordButton.classList.add('green');
-      recordIcon.textContent = 'fiber_manual_record';
-      recordButton.innerHTML = recordButton.innerHTML.replace('Stop Recording', 'Record BVH');
-      recordStartTime = -1;
-      document.getElementById('recdetails').innerHTML = "Not Recording...";
-    }
+    window.updateConversionStatus = function(message, showButton = false) {
+      const statusText = document.getElementById('statusText');
+      const manualBtn = document.getElementById('manualConvertBtn');
 
-    isRecording = !isRecording;
-  }
-  var firstFrameJointData;
-  function startRecording() {
-    recording = true;
-    recordedMotionData = [];
-    recordStartTime = Date.now();
-  }
+      if (statusText) {
+        statusText.textContent = message;
+      }
 
-  var recording = false;
-  function stopRecording() {
-    recording = false;
-
-    // Call generateBVH and save the BVH file
-    // console.log(recordedMotionData.length);
-    const bvhContent = generateBVH(firstFrameJointData, recordedMotionData);
-    const blob = new Blob([bvhContent], { type: "text/plain;charset=utf-8" });
-    const date = new Date();
-    const dateString = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;
-    const file_name = `Mocap_bvh_${dateString}.bvh`;
-    saveAs(blob, file_name);
-  }
-
-</script>
-
-<p id="recdetails" style="z-index:9999;position:fixed;bottom:20px;left:5px;color:white;padding:10px;">
-  Not Recording...
-</p>
-<button id="recordButton" style="position:absolute; left:0; bottom:0px; z-index: 1001;"
-    class="main btn waves-effect waves-light green black-text large" onclick="toggleRecording()">
-    <i class="material-icons" style="vertical-align:middle;font-size:200%">fiber_manual_record</i>
-    Record BVH
-  </button>
-
-<!--<script type="module" src="./script.js"></script>-->
-<!--<script type="module" src="threejsscene.js"></script>-->
-
-<!--<script>-->
-<!--  // 👇 Hardcoded JSON load at startup-->
-<!--  fetch("./pose_output.json")-->
-<!--    .then(response => response.json())-->
-<!--    .then(jsonData => {-->
-<!--      console.log("Loaded pose_output.json successfully");-->
-<!--      if (window.generateBVH) {-->
-<!--        window.generateBVH(jsonData);-->
-<!--      } else {-->
-<!--        console.warn("generateBVH not yet defined — trying again in 1s...");-->
-<!--        setTimeout(() => {-->
-<!--          if (window.generateBVH) {-->
-<!--            window.generateBVH(jsonData);-->
-<!--          } else {-->
-<!--            alert("generateBVH() still not found — check script.js structure");-->
-<!--          }-->
-<!--        }, 1000);-->
-<!--      }-->
-<!--    })-->
-<!--    .catch(err => console.error("Error loading pose_output.json:", err));-->
-<!--</script>-->
-
+      if (manualBtn && showButton) {
+        manualBtn.style.display = 'inline-block';
+      }
+    };
+  </script>
 
 </body>
 
 </html>
+
+<!--<!DOCTYPE html>-->
+<!--<html lang="en">-->
+
+<!--<head>-->
+<!--  <meta charset="UTF-8">-->
+<!--  <title>pose2bvh - Stored Pose Playback</title>-->
+<!--  <meta name="viewport" content="width=device-width,initial-scale=1">-->
+<!--  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>-->
+<!--  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>-->
+<!--  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">-->
+<!--  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">-->
+<!--  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>-->
+<!--  <script src="three.min.js"></script>-->
+<!--  <script src="bvh_converter.js"></script>-->
+
+<!--  <script>-->
+<!--    var faceLandmarker;-->
+<!--    var faceResults;-->
+<!--    var holisticResults;-->
+
+<!--    let camera, scene, renderer, stats;-->
+<!--    var model;-->
+<!--    var animation;-->
+<!--    var animationDuration;-->
+<!--    let camera_bvh, controls_bvh, scene_bvh, renderer_bvh;-->
+<!--    let mixer_bvh, skeletonHelper_bvh;-->
+
+<!--    var args = window.location.hash.replace("#", "").split(",");-->
+<!--    var fbxfile = args[0] || "ybot.fbx";-->
+<!--    var trackingLine;-->
+<!--    var line_tracker = [];-->
+<!--    var bvhRecorderFrequency = 20;-->
+<!--    var lastFrameTime = -1;-->
+<!--    var recordStartTime = -1;-->
+
+<!--    var facemesh;-->
+<!--    var lastUpdateFrameTime = 0;-->
+<!--    var recordedMotionData = [];-->
+<!--    var recording = false;-->
+<!--    var firstFrameJointData;-->
+<!--  </script>-->
+
+<!--  <style>-->
+<!--    #results {-->
+<!--      display: flex;-->
+<!--      flex-direction: column;-->
+<!--      gap: 1rem;-->
+<!--      color: black;-->
+<!--    }-->
+
+<!--    #results div {-->
+<!--      display: flex;-->
+<!--      flex-direction: column;-->
+<!--      gap: 0.5rem;-->
+<!--      max-height: 200px;-->
+<!--      min-height: 200px;-->
+<!--      overflow-y: hidden;-->
+<!--    }-->
+<!--  </style>-->
+
+<!--</head>-->
+
+<!--<body style="margin:0;background:#232323">-->
+
+<!--  &lt;!&ndash; Playback status display &ndash;&gt;-->
+<!--  <div id="playbackStatus" style="position:fixed;top:20px;left:20px;color:white;background:rgba(0,0,0,0.7);padding:10px;border-radius:5px;z-index:9999;">-->
+<!--    Loading pose data...-->
+<!--  </div>-->
+
+<!--  &lt;!&ndash; Playback controls &ndash;&gt;-->
+<!--  <div style="position:fixed;top:70px;left:20px;z-index:9999;">-->
+<!--    <button class="btn waves-effect waves-light blue" onclick="window.posePlayer && window.posePlayer.play(false)">-->
+<!--      <i class="material-icons" style="vertical-align:middle;">play_arrow</i>-->
+<!--      Play Once-->
+<!--    </button>-->
+<!--    <button class="btn waves-effect waves-light orange" onclick="window.posePlayer && window.posePlayer.stop()">-->
+<!--      <i class="material-icons" style="vertical-align:middle;">stop</i>-->
+<!--      Stop-->
+<!--    </button>-->
+<!--    <button class="btn waves-effect waves-light purple" onclick="window.posePlayer && window.posePlayer.reset()">-->
+<!--      <i class="material-icons" style="vertical-align:middle;">replay</i>-->
+<!--      Reset-->
+<!--    </button>-->
+<!--    <button id="loopBtn" class="btn waves-effect waves-light grey" onclick="window.posePlayer && window.posePlayer.toggleLoop()">-->
+<!--      <i class="material-icons" style="vertical-align:middle;">loop</i>-->
+<!--      Loop-->
+<!--    </button>-->
+<!--  </div>-->
+
+<!--  <p id="recdetails" style="z-index:9999;position:fixed;bottom:20px;left:5px;color:white;padding:10px;">-->
+<!--    Not Recording...-->
+<!--  </p>-->
+
+<!--  <button id="recordButton" style="position:absolute; left:0; bottom:0px; z-index: 1001;"-->
+<!--      class="main btn waves-effect waves-light green black-text large" onclick="toggleRecording()">-->
+<!--      <i class="material-icons" style="vertical-align:middle;font-size:200%">fiber_manual_record</i>-->
+<!--      Record BVH-->
+<!--  </button>-->
+
+<!--  &lt;!&ndash; Load pose player before threejs scene &ndash;&gt;-->
+<!--  <script src="pose_player.js"></script>-->
+<!--  <script type="module" src="threejsscene.js"></script>-->
+
+<!--  <script>-->
+<!--    let isRecording = false;-->
+
+<!--    function toggleRecording() {-->
+<!--      const recordButton = document.getElementById('recordButton');-->
+<!--      const recordIcon = recordButton.querySelector('i');-->
+
+<!--      if (!isRecording) {-->
+<!--        // Check if playback is active-->
+<!--        if (!window.posePlayer || !window.posePlayer.isPlaying()) {-->
+<!--          alert('Please start playback before recording!\n\nTip: Enable "Loop" mode to record multiple passes.');-->
+<!--          return;-->
+<!--        }-->
+
+<!--        startRecording();-->
+<!--        recordButton.classList.remove('green');-->
+<!--        recordButton.classList.add('red');-->
+<!--        recordIcon.textContent = 'stop';-->
+<!--        recordButton.innerHTML = '<i class="material-icons" style="vertical-align:middle;font-size:200%">stop</i> Stop Recording';-->
+<!--      } else {-->
+<!--        stopRecording();-->
+<!--        recordButton.classList.remove('red');-->
+<!--        recordButton.classList.add('green');-->
+<!--        recordIcon.textContent = 'fiber_manual_record';-->
+<!--        recordButton.innerHTML = '<i class="material-icons" style="vertical-align:middle;font-size:200%">fiber_manual_record</i> Record BVH';-->
+<!--        recordStartTime = -1;-->
+<!--        document.getElementById('recdetails').innerHTML = "Not Recording...";-->
+<!--      }-->
+
+<!--      isRecording = !isRecording;-->
+<!--    }-->
+
+<!--    function startRecording() {-->
+<!--      recording = true;-->
+<!--      recordedMotionData = [];-->
+<!--      recordStartTime = Date.now();-->
+<!--      console.log('Started BVH recording');-->
+<!--    }-->
+
+<!--    function stopRecording() {-->
+<!--      recording = false;-->
+<!--      console.log('Stopped BVH recording');-->
+
+<!--      if (recordedMotionData.length === 0) {-->
+<!--        alert('No frames were recorded!');-->
+<!--        return;-->
+<!--      }-->
+
+<!--      // Call generateBVH and save the BVH file-->
+<!--      const bvhContent = generateBVH(firstFrameJointData, recordedMotionData);-->
+<!--      const blob = new Blob([bvhContent], { type: "text/plain;charset=utf-8" });-->
+<!--      const date = new Date();-->
+<!--      const dateString = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;-->
+<!--      const file_name = `Mocap_bvh_${dateString}.bvh`;-->
+<!--      saveAs(blob, file_name);-->
+
+<!--      console.log(`Saved ${recordedMotionData.length} frames to ${file_name}`);-->
+<!--    }-->
+
+<!--    // Make stopRecording globally accessible for pose_player.js-->
+<!--    window.stopRecording = stopRecording;-->
+<!--  </script>-->
+
+<!--</body>-->
+
+<!--</html>-->
