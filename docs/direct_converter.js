@@ -46,10 +46,14 @@ async function convertPoseJsonToBVH() {
             }))
         };
 
-        // Small delay to let the animation frame process
-        await new Promise(resolve => setTimeout(resolve, 1));
+        // CRITICAL FIX: Wait for the animation frame to actually process the pose data
+        // This ensures the skeleton is updated BEFORE we capture joint data
+        await waitForAnimationFrame();
 
-        // Call updateMotionData to get the processed joint information
+        // Additional small delay to ensure all calculations complete
+        await new Promise(resolve => setTimeout(resolve, 5));
+
+        // Now call updateMotionData to get the processed joint information
         const jointData = updateMotionData(true); // true = return data
 
         if (jointData && jointData.length > 0) {
@@ -57,6 +61,8 @@ async function convertPoseJsonToBVH() {
                 firstFrameData = jointData;
             }
             processedMotionData.push(jointData);
+        } else {
+            console.warn(`Frame ${i}: No joint data captured`);
         }
 
         // Update progress UI
@@ -86,6 +92,16 @@ async function convertPoseJsonToBVH() {
 
     console.log(`✓ Conversion complete! Saved as ${fileName}`);
     window.updateConversionStatus(`✅ Success! Converted ${processedMotionData.length} frames\n\nFile: ${fileName}`, true);
+}
+
+// Helper function to wait for the next animation frame to complete
+function waitForAnimationFrame() {
+    return new Promise(resolve => {
+        requestAnimationFrame(() => {
+            // Wait for the frame to actually render
+            requestAnimationFrame(resolve);
+        });
+    });
 }
 
 // Helper function to wait for model to load
