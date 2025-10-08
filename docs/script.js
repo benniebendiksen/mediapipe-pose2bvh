@@ -72,6 +72,8 @@ const holistic = new Holistic({
     },
 });
 
+window.holistic = holistic;
+
 holistic.setOptions({
     modelComplexity: 1,
     smoothLandmarks: true,
@@ -81,11 +83,16 @@ holistic.setOptions({
     minDetectionConfidence: 0.5,
     minTrackingConfidence: 0.5
 });
-holistic.onResults(onResults2);
+// holistic.onResults(onResults2);
 
-function onResults2(results) {
-    holisticResults = results;
-}
+// function onResults2(results) {
+//     holisticResults = results;
+// }
+// window.onResults2 = function(results) {
+//   holisticResults = results;
+// }
+//
+// holistic.onResults(window.onResults2);
 
 const camera = new Camera(document.getElementById("video"), {
     onFrame: async () => {
@@ -94,6 +101,9 @@ const camera = new Camera(document.getElementById("video"), {
     width: document.getElementById("video").width,
     height: document.getElementById("video").height
 });
+
+window.mpCamera = camera;
+
 setTimeout(() => {
     camera.start();
 }, 5000);

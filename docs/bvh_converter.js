@@ -2,6 +2,9 @@
 // var frameTime = 1/30; 
 const radToDeg = 180 / Math.PI;
 
+//global var to store initial position of hips
+let initialHipPosition = null;
+
 function quaternionToEulerDegrees(q) {
     const euler = new THREE.Euler().setFromQuaternion(q, "XYZ");
     // const euler1 = new THREE.Euler().setFromQuaternion(q, "XYZ");
@@ -10,15 +13,61 @@ function quaternionToEulerDegrees(q) {
     return [euler.x * radToDeg, euler.y * radToDeg, euler.z * radToDeg];
 }
 
+// function updateMotionData(doret) {
+//     var time = performance.now()
+//
+//
+//     const jointInfo = [];
+//     const rootJoint = model.getObjectByName("mixamorigHips");
+//     if (rootJoint) {
+//         // console.log("Root joint found!", rootJoint);
+//         traverseHierarchy(rootJoint, jointInfo, 0);
+//
+//         if (!doret || recording) {
+//             recordedMotionData.push(jointInfo);
+//         }
+//     } else {
+//         console.error("Root joint not found!");
+//     }
+//     var time2 = performance.now()
+//     lastUpdateFrameTime = time2 - time;
+//     // console.log(time2, time, lastUpdateFrameTime);
+//     if(doret){
+//         return jointInfo;
+//     }
+//     else{
+//         return;
+//     }
+// }
+
+// In bvh_converter.js
+
 function updateMotionData(doret) {
-    var time = performance.now()
-
-
     const jointInfo = [];
     const rootJoint = model.getObjectByName("mixamorigHips");
+
     if (rootJoint) {
-        // console.log("Root joint found!", rootJoint);
+        const originalPosition = rootJoint.position.clone();
+
+        // --- ADD THIS LINE ---
+        console.log(`[Recorder] Read Original Position:`, originalPosition);
+
+        if (!initialHipPosition) {
+            initialHipPosition = originalPosition.clone();
+            console.log("Initial hip position set to:", initialHipPosition);
+        }
+
+        const relativePosition = originalPosition.clone().sub(initialHipPosition);
+
+        relativePosition.multiplyScalar(100); // Scale up the motion to be visible
+
+        // --- ADD THIS LINE ---
+        console.log(`[Recorder] Calculated Relative Position:`, relativePosition);
+
+
+        rootJoint.position.copy(relativePosition);
         traverseHierarchy(rootJoint, jointInfo, 0);
+        rootJoint.position.copy(originalPosition);
 
         if (!doret || recording) {
             recordedMotionData.push(jointInfo);
@@ -26,16 +75,100 @@ function updateMotionData(doret) {
     } else {
         console.error("Root joint not found!");
     }
-    var time2 = performance.now()
-    lastUpdateFrameTime = time2 - time;
-    // console.log(time2, time, lastUpdateFrameTime);
-    if(doret){
+
+    if (doret) {
         return jointInfo;
-    }
-    else{
+    } else {
         return;
     }
 }
+
+// function updateMotionData(doret) {
+//     const jointInfo = [];
+//     const rootJoint = model.getObjectByName("mixamorigHips");
+//
+//     if (rootJoint) {
+//         // --- START OF THE FINAL FIX ---
+//
+//         // 1. Store the original, absolute position from the 3D model.
+//         const originalPosition = rootJoint.position.clone();
+//
+//         // 2. Ensure the initial position is captured on the first frame.
+//         if (!initialHipPosition) {
+//             initialHipPosition = originalPosition.clone();
+//             console.log("Initial hip position set to:", initialHipPosition);
+//         }
+//
+//         // 3. Calculate the correct relative position for this frame.
+//         const relativePosition = originalPosition.clone().sub(initialHipPosition);
+//
+//         // 4. IMPORTANT: Temporarily overwrite the model's position with our relative one.
+//         rootJoint.position.copy(relativePosition);
+//
+//         // 5. Now, run the hierarchy traversal. It will read the correct relative position.
+//         traverseHierarchy(rootJoint, jointInfo, 0);
+//
+//         // 6. CRITICAL: Restore the model's original position so the on-screen character doesn't jump.
+//         rootJoint.position.copy(originalPosition);
+//
+//         // --- END OF THE FINAL FIX ---
+//
+//         if (!doret || recording) {
+//             recordedMotionData.push(jointInfo);
+//         }
+//     } else {
+//         console.error("Root joint not found!");
+//     }
+//
+//     if (doret) {
+//         return jointInfo;
+//     } else {
+//         return;
+//     }
+// }
+
+// function updateMotionData(doret) {
+//     var time = performance.now()
+//
+//
+//     const jointInfo = [];
+//     const rootJoint = model.getObjectByName("mixamorigHips");
+//     if (rootJoint) {
+//         // console.log("Root joint found!", rootJoint);
+//         traverseHierarchy(rootJoint, jointInfo, 0);
+//
+//         if (!initialHipPosition) {
+//             initialHipPosition = rootJoint.position.clone();
+//             console.log("Initial hip position set to:", initialHipPosition); // For verification initialHipPosition is being set correctly
+//         }
+//
+//         const relativePosition = rootJoint.position.clone().sub(initialHipPosition);
+//
+//         // Update the position in jointInfo with the relative position
+//         for (let i = 0; i < jointInfo.length; i++) {
+//             if (jointInfo[i].name === "Hips") {
+//                 jointInfo[i].position = [relativePosition.x, relativePosition.y, relativePosition.z];
+//                 break;
+//             }
+//         }
+//
+//
+//         if (!doret || recording) {
+//             recordedMotionData.push(jointInfo);
+//         }
+//     } else {
+//         console.error("Root joint not found!");
+//     }
+//     var time2 = performance.now()
+//     lastUpdateFrameTime = time2 - time;
+//     // console.log(time2, time, lastUpdateFrameTime);
+//     if(doret){
+//         return jointInfo;
+//     }
+//     else{
+//         return;
+//     }
+// }
 
 
 function traverseHierarchy(joint, jointInfo, level = 0) {
@@ -118,9 +251,9 @@ function traverseHierarchy(joint, jointInfo, level = 0) {
         
         var position = joint.position;
         position  = position.toArray();
-        if (name === "Hips") {
-            position[1] -= 100;
-        }
+        // if (name === "Hips") {
+        //     position[1] -= 100;
+        // }
         const rotation = quaternionToEulerDegrees(joint.quaternion);
 
         jointInfo.push({
@@ -209,3 +342,6 @@ function generateBVH(jointInfo, motionData) {
 
     return bvhContent;
 }
+
+// At the end of bvh_converter.js
+window.updateMotionData = updateMotionData;

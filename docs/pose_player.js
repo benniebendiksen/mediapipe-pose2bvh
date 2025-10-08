@@ -56,12 +56,29 @@ function checkAutoStopRecording() {
     }
 }
 
-// Play through stored poses
+
+
 function playStoredPoses(loop = false) {
     if (!storedPoseData || storedPoseData.length === 0) {
-        console.error('No stored pose data available');
         alert('Please load pose_output.json first');
         return;
+    }
+
+    // --- START OF FINAL FIX ---
+    // 1. Stop the live camera feed.
+    if (window.mpCamera) {
+        console.log("Stopping live camera feed for playback.");
+        window.mpCamera.stop();
+    }
+    // 2. CRITICAL: Disable the live results callback to prevent data overwrites.
+    if (window.holistic) {
+        console.log("Disabling live results callback.");
+        window.holistic.onResults(() => {}); // Set to an empty function
+    }
+    // --- END OF FINAL FIX ---
+
+    if (window.toggleRecording) {
+        window.toggleRecording(true);
     }
 
     loopPlayback = loop;
@@ -70,26 +87,23 @@ function playStoredPoses(loop = false) {
 
     console.log(`Starting playback (${loop ? 'loop mode' : 'once'})`);
 
-    // Update holisticResults with stored data at ~30fps
     playbackInterval = setInterval(() => {
         if (currentFrameIndex >= storedPoseData.length) {
             if (loopPlayback) {
-                // Loop back to start
                 currentFrameIndex = 0;
-                console.log('Looping playback...');
             } else {
-                // Stop at end
                 stopStoredPoses();
                 checkAutoStopRecording();
                 return;
             }
         }
 
-        // Create synthetic holisticResults object
+        // This is now the ONLY source for holisticResults
         window.holisticResults = {
             poseLandmarks: convertToMediaPipeFormat(storedPoseData[currentFrameIndex])
         };
 
+        window.shouldRecordFrame = true;
         currentFrameIndex++;
 
         // Update UI
@@ -98,8 +112,120 @@ function playStoredPoses(loop = false) {
             const loopText = loopPlayback ? ' (looping)' : '';
             statusEl.textContent = `Playing frame ${currentFrameIndex}/${storedPoseData.length}${loopText}`;
         }
-    }, 1000 / 30); // 30fps
+    }, 1000 / 30);
 }
+
+// function playStoredPoses(loop = false) {
+//     if (!storedPoseData || storedPoseData.length === 0) {
+//         console.error('No stored pose data available');
+//         alert('Please load pose_output.json first');
+//         return;
+//     }
+//
+//     // Automatically start recording when playback begins
+//     if (window.toggleRecording) {
+//         window.toggleRecording(true); // Call with 'true' to bypass the alert
+//     }
+//
+//     loopPlayback = loop;
+//     isPlayingStored = true;
+//     currentFrameIndex = 0;
+//
+//     console.log(`Starting playback (${loop ? 'loop mode' : 'once'})`);
+//
+//     // Update holisticResults with stored data at ~30fps
+//     playbackInterval = setInterval(() => {
+//         if (currentFrameIndex >= storedPoseData.length) {
+//             if (loopPlayback) {
+//                 // Loop back to start
+//                 currentFrameIndex = 0;
+//                 console.log('Looping playback...');
+//             } else {
+//                 // Stop at end
+//                 stopStoredPoses();
+//                 checkAutoStopRecording();
+//                 return;
+//             }
+//         }
+//
+//         // Create synthetic holisticResults object
+//         window.holisticResults = {
+//             poseLandmarks: convertToMediaPipeFormat(storedPoseData[currentFrameIndex])
+//         };
+//
+//         // Explicitly tell the recorder to save this frame.
+//         // if (recording && window.updateMotionData) {
+//         //     window.updateMotionData(false);
+//         // }
+//         window.shouldRecordFrame = true;
+//
+//         currentFrameIndex++;
+//
+//         // Update UI
+//         const statusEl = document.getElementById('playbackStatus');
+//         if (statusEl) {
+//             const loopText = loopPlayback ? ' (looping)' : '';
+//             statusEl.textContent = `Playing frame ${currentFrameIndex}/${storedPoseData.length}${loopText}`;
+//         }
+//     }, 1000 / 30); // 30fps
+// }
+
+// Play through stored poses
+// function playStoredPoses(loop = false) {
+//     // First, check if the model is ready
+//     if (!window.modelReady) {
+//         alert("3D model is not ready yet. Please wait a few moments and try again.");
+//         console.warn("Attempted to play before model was loaded.");
+//         return; // Stop the function from proceeding
+//     }
+//
+//     if (!storedPoseData || storedPoseData.length === 0) {
+//         console.error('No stored pose data available');
+//         alert('Please load pose_output.json first');
+//         return;
+//     }
+//
+//     // Automatically start recording when playback begins
+//     if (window.toggleRecording) {
+//         window.toggleRecording(true); // Call with 'true' to bypass the alert
+//     }
+//
+//     loopPlayback = loop;
+//     isPlayingStored = true;
+//     currentFrameIndex = 0;
+//
+//     console.log(`Starting playback (${loop ? 'loop mode' : 'once'})`);
+//
+//     // Update holisticResults with stored data at ~30fps
+//     playbackInterval = setInterval(() => {
+//         if (currentFrameIndex >= storedPoseData.length) {
+//             if (loopPlayback) {
+//                 // Loop back to start
+//                 currentFrameIndex = 0;
+//                 console.log('Looping playback...');
+//             } else {
+//                 // Stop at end
+//                 stopStoredPoses();
+//                 checkAutoStopRecording();
+//                 return;
+//             }
+//         }
+//
+//         // Create synthetic holisticResults object
+//         window.holisticResults = {
+//             poseLandmarks: convertToMediaPipeFormat(storedPoseData[currentFrameIndex])
+//         };
+//
+//         currentFrameIndex++;
+//
+//         // Update UI
+//         const statusEl = document.getElementById('playbackStatus');
+//         if (statusEl) {
+//             const loopText = loopPlayback ? ' (looping)' : '';
+//             statusEl.textContent = `Playing frame ${currentFrameIndex}/${storedPoseData.length}${loopText}`;
+//         }
+//     }, 1000 / 30); // 30fps
+// }
 
 function stopStoredPoses() {
     isPlayingStored = false;
@@ -108,6 +234,21 @@ function stopStoredPoses() {
         playbackInterval = null;
     }
 
+    window.holisticResults = null;
+
+    // --- START OF FINAL FIX ---
+    // 1. CRITICAL: Restore the live results callback.
+    if (window.holistic && window.onResults2) {
+        console.log("Restoring live results callback.");
+        window.holistic.onResults(window.onResults2);
+    }
+    // 2. Restart the live camera feed.
+    if (window.mpCamera) {
+        console.log("Restarting live camera feed.");
+        window.mpCamera.start();
+    }
+    // --- END OF FINAL FIX ---
+
     const statusEl = document.getElementById('playbackStatus');
     if (statusEl && storedPoseData) {
         statusEl.textContent = `Stopped at frame ${currentFrameIndex}/${storedPoseData.length}`;
@@ -115,6 +256,21 @@ function stopStoredPoses() {
 
     console.log('Stopped playback');
 }
+
+// function stopStoredPoses() {
+//     isPlayingStored = false;
+//     if (playbackInterval) {
+//         clearInterval(playbackInterval);
+//         playbackInterval = null;
+//     }
+//
+//     const statusEl = document.getElementById('playbackStatus');
+//     if (statusEl && storedPoseData) {
+//         statusEl.textContent = `Stopped at frame ${currentFrameIndex}/${storedPoseData.length}`;
+//     }
+//
+//     console.log('Stopped playback');
+// }
 
 function resetStoredPoses() {
     stopStoredPoses();
